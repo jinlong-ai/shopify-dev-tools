@@ -1,0 +1,62 @@
+{
+  "name": "@superfatiao/shopify-dev-tools",
+  "version": "1.0.0",
+  "description": "Universal Memory-Safe Development Kit for Shopify Themes - Supports Windows (PowerShell/CMD), Linux/Mac (Bash), Node.js, Bun",
+  "keywords": [
+    "shopify",
+    "theme",
+    "development",
+    "memory",
+    "safety",
+    "monitoring",
+    "cli",
+    "cross-platform"
+  ],
+  "author": "SuperFaTiao",
+  "license": "MIT",
+  "homepage": "https://github.com/SuperFaTiao/shopify-dev-tools",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SuperFaTiao/shopify-dev-tools.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SuperFaTiao/shopify-dev-tools/issues"
+  },
+  "bin": {
+    "sfd": "./bin/sfd",
+    "sfd-node": "./bin/sfd"
+  },
+  "scripts": {
+    "test": "node test/test.js",
+    "lint": "eslint bin/ scripts/",
+    "format": "prettier --write bin/ scripts/"
+  },
+  "engines": {
+    "node": ">=14.0.0",
+    "bun": ">=1.0.0"
+  },
+  "os": [
+    "win32",
+    "darwin",
+    "linux"
+  ],
+  "preferGlobal": true,
+  "files": [
+    "bin/",
+    "scripts/",
+    "locales/",
+    "docs/",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "eslint": "^8.0.0",
+    "prettier": "^3.0.0"
+  },
+  "browserslist": [
+    ">= 0.5%",
+    "last 2 versions",
+    "not dead"
+  ]
+}

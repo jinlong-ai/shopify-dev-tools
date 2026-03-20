@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or Discussion
+    url: https://github.com/SuperFaTiao/shopify-dev-tools/discussions
+    about: Please ask and answer questions here
+  - name: Documentation Issue
+    url: https://github.com/SuperFaTiao/shopify-dev-tools/issues/new
+    about: Report issues with documentation

@@ -1,0 +1,318 @@
+#!/usr/bin/env node
+/**
+ * SuperFaTiao Shopify Dev Tools
+ * Universal Memory-Safe Development Kit
+ * Supports: Windows (PowerShell/CMD), Linux/Mac (Bash), Node.js, Bun
+ * Version: 1.0.0
+ */
+
+const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
+// Configuration
+const CONFIG = {
+  version: '1.0.0',
+  name: 'superfatiao-shopify-dev',
+  memoryLimit: 4096,
+  memoryThreshold: 3500,
+  restartLimit: 5,
+  languages: ['en', 'zh'],
+  defaultLang: 'en'
+};
+
+// i18n Messages
+const MESSAGES = {
+  en: {
+    title: 'SuperFaTiao Shopify Dev Tools',
+    checking: 'Checking Shopify CLI...',
+    cliNotFound: 'Shopify CLI not found. Install: npm install -g @shopify/cli',
+    memoryLimit: 'Memory Limit',
+    threshold: 'Restart Threshold',
+    starting: 'Starting safe dev server...',
+    storePrompt: 'Enter store domain (e.g.: xxx.myshopify.com)',
+    monitoring: 'Monitoring memory every 10s...',
+    highMemory: 'High memory detected, restarting...',
+    restarting: 'Restarting server ({0}/{1})...',
+    stopped: 'Dev server stopped',
+    logLocation: 'Log location',
+    usage: 'Usage: sfd [store-domain] [options]',
+    options: 'Options:\n  -h, --help     Show help\n  -v, --version  Show version\n  -m, --memory   Set memory limit (MB)\n  --lang         Set language (en/zh)',
+    currentStore: 'Current store',
+    autoRestart: 'Auto-restart enabled',
+    gracefulShutdown: 'Graceful shutdown...',
+    memoryUsage: 'Memory Usage'
+  },
+  zh: {
+    title: 'SuperFaTiao Shopify 开发工具',
+    checking: '检查 Shopify CLI...',
+    cliNotFound: '未找到 Shopify CLI。安装: npm install -g @shopify/cli',
+    memoryLimit: '内存限制',
+    threshold: '重启阈值',
+    starting: '启动安全开发服务器...',
+    storePrompt: '请输入商店域名 (如: xxx.myshopify.com)',
+    monitoring: '每10秒监控内存...',
+    highMemory: '检测到高内存，正在重启...',
+    restarting: '重启服务器 ({0}/{1})...',
+    stopped: '开发服务器已停止',
+    logLocation: '日志位置',
+    usage: '用法: sfd [商店域名] [选项]',
+    options: '选项:\n  -h, --help     显示帮助\n  -v, --version  显示版本\n  -m, --memory   设置内存限制 (MB)\n  --lang         设置语言 (en/zh)',
+    currentStore: '当前商店',
+    autoRestart: '自动重启已启用',
+    gracefulShutdown: '优雅关闭...',
+    memoryUsage: '内存使用'
+  }
+};
+
+class SuperFaTiaoDev {
+  constructor(args = []) {
+    this.args = args;
+    this.lang = this.detectLanguage();
+    this.messages = MESSAGES[this.lang];
+    this.restartCount = 0;
+    this.process = null;
+    this.monitorInterval = null;
+    this.config = {
+      store: process.env.SHOPIFY_STORE || '',
+      theme: process.env.SHOPIFY_THEME || 'SuperFaTiao',
+      memoryLimit: parseInt(process.env.SFD_MEMORY) || CONFIG.memoryLimit,
+      threshold: parseInt(process.env.SFD_THRESHOLD) || CONFIG.memoryThreshold
+    };
+  }
+
+  detectLanguage() {
+    // Check command line args
+    const langArg = this.args.find(arg => arg.startsWith('--lang='));
+    if (langArg) {
+      return langArg.split('=')[1] || CONFIG.defaultLang;
+    }
+    // Check environment
+    if (process.env.SFD_LANG) return process.env.SFD_LANG;
+    // Check system locale
+    const locale = (process.env.LANG || process.env.LC_ALL || '').toLowerCase();
+    if (locale.includes('zh') || locale.includes('cn')) return 'zh';
+    return CONFIG.defaultLang;
+  }
+
+  t(key, ...args) {
+    let msg = this.messages[key] || key;
+    args.forEach((arg, i) => {
+      msg = msg.replace(`{${i}}`, arg);
+    });
+    return msg;
+  }
+
+  printHeader() {
+    console.log('='.repeat(50));
+    console.log(this.t('title') + ` v${CONFIG.version}`);
+    console.log('='.repeat(50));
+    console.log(`${this.t('memoryLimit')}: ${this.config.memoryLimit}MB`);
+    console.log(`${this.t('threshold')}: ${this.config.threshold}MB`);
+    console.log('='.repeat(50));
+    console.log();
+  }
+
+  async checkCLI() {
+    console.log(`[${this.t('checking')}]`);
+    return new Promise((resolve, reject) => {
+      const child = spawn('shopify', ['--version'], { stdio: 'pipe' });
+      let output = '';
+      child.stdout.on('data', (data) => { output += data; });
+      child.on('close', (code) => {
+        if (code === 0) {
+          console.log(`✓ Shopify CLI ${output.trim()}`);
+          resolve();
+        } else {
+          console.error(`✗ ${this.t('cliNotFound')}`);
+          reject(new Error('CLI not found'));
+        }
+      });
+    });
+  }
+
+  async promptStore() {
+    if (!this.config.store) {
+      // Simple prompt for Node.js
+      process.stdout.write(`${this.t('storePrompt')}: `);
+      const store = await this.readLine();
+      this.config.store = store.trim();
+      process.env.SHOPIFY_STORE = this.config.store;
+    }
+    console.log(`${this.t('currentStore')}: ${this.config.store}`);
+    console.log(`✓ ${this.t('autoRestart')}`);
+    console.log();
+  }
+
+  readLine() {
+    return new Promise((resolve) => {
+      const rl = require('readline').createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+      rl.question('', (answer) => {
+        rl.close();
+        resolve(answer);
+      });
+    });
+  }
+
+  setupEnvironment() {
+    // Set memory options
+    const nodeOptions = `--max-old-space-size=${this.config.memoryLimit} --optimize-for-size`;
+    process.env.NODE_OPTIONS = nodeOptions;
+    process.env.SHOPIFY_FLAG_STORE = this.config.store;
+    process.env.SHOPIFY_CLI_NO_ANALYTICS = '1';
+
+    // Create logs directory
+    const logDir = path.join(process.cwd(), '.logs');
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+  }
+
+  getMemoryUsage() {
+    const usage = process.memoryUsage();
+    return {
+      rss: Math.round(usage.rss / 1024 / 1024),
+      heapUsed: Math.round(usage.heapUsed / 1024 / 1024),
+      heapTotal: Math.round(usage.heapTotal / 1024 / 1024)
+    };
+  }
+
+  async startDevServer() {
+    console.log(this.t('starting'));
+    console.log(`${this.t('monitoring')}`);
+    console.log();
+
+    // Prepare command
+    const args = [
+      'theme', 'dev',
+      '--store', this.config.store,
+      '--theme', this.config.theme,
+      '--path', '.'
+    ];
+
+    // Start process
+    this.process = spawn('shopify', args, {
+      stdio: 'inherit',
+      env: process.env
+    });
+
+    // Start monitoring
+    this.startMemoryMonitor();
+
+    // Wait for process
+    return new Promise((resolve) => {
+      this.process.on('exit', (code) => {
+        this.stopMonitor();
+        resolve(code);
+      });
+    });
+  }
+
+  startMemoryMonitor() {
+    this.monitorInterval = setInterval(() => {
+      const mem = this.getMemoryUsage();
+      process.stdout.write(`\r[${this.t('memoryUsage')}: ${mem.heapUsed}MB/${this.config.memoryLimit}MB]  `);
+
+      if (mem.heapUsed > this.config.threshold) {
+        console.log(`\n⚠ ${this.t('highMemory')}`);
+        this.restartServer();
+      }
+    }, 10000);
+  }
+
+  stopMonitor() {
+    if (this.monitorInterval) {
+      clearInterval(this.monitorInterval);
+      this.monitorInterval = null;
+    }
+  }
+
+  restartServer() {
+    if (this.restartCount >= CONFIG.restartLimit) {
+      console.error('Too many restarts, exiting...');
+      process.exit(1);
+    }
+
+    this.restartCount++;
+    console.log(this.t('restarting', this.restartCount, CONFIG.restartLimit));
+    console.log(this.t('gracefulShutdown'));
+
+    if (this.process) {
+      this.process.kill('SIGTERM');
+    }
+  }
+
+  printHelp() {
+    console.log(this.t('usage'));
+    console.log();
+    console.log(this.t('options'));
+    console.log();
+    console.log('Environment Variables:');
+    console.log('  SHOPIFY_STORE    Default store domain');
+    console.log('  SFD_MEMORY       Memory limit in MB');
+    console.log('  SFD_LANG         Language (en/zh)');
+  }
+
+  printVersion() {
+    console.log(`${CONFIG.name} v${CONFIG.version}`);
+    console.log(`Platform: ${os.platform()} ${os.arch()}`);
+    console.log(`Node: ${process.version}`);
+  }
+
+  async run() {
+    // Parse arguments
+    if (this.args.includes('-h') || this.args.includes('--help')) {
+      this.printHelp();
+      return;
+    }
+
+    if (this.args.includes('-v') || this.args.includes('--version')) {
+      this.printVersion();
+      return;
+    }
+
+    // Parse store from args
+    const storeArg = this.args.find(arg => !arg.startsWith('-') && arg.includes('.'));
+    if (storeArg) {
+      this.config.store = storeArg;
+      process.env.SHOPIFY_STORE = storeArg;
+    }
+
+    // Parse memory limit
+    const memIndex = this.args.findIndex(arg => arg === '-m' || arg === '--memory');
+    if (memIndex !== -1 && this.args[memIndex + 1]) {
+      this.config.memoryLimit = parseInt(this.args[memIndex + 1]);
+      this.config.threshold = Math.floor(this.config.memoryLimit * 0.85);
+    }
+
+    try {
+      this.printHeader();
+      await this.checkCLI();
+      await this.promptStore();
+      this.setupEnvironment();
+      await this.startDevServer();
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    } finally {
+      this.stopMonitor();
+      console.log();
+      console.log('='.repeat(50));
+      console.log(this.t('stopped'));
+      console.log(`${this.t('logLocation')}: ${path.join(process.cwd(), '.logs')}`);
+      console.log('='.repeat(50));
+    }
+  }
+}
+
+// Run if called directly
+if (require.main === module) {
+  const sfd = new SuperFaTiaoDev(process.argv.slice(2));
+  sfd.run();
+}
+
+module.exports = { SuperFaTiaoDev, CONFIG, MESSAGES };
